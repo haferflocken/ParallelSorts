@@ -10,10 +10,8 @@ using namespace std;
 // rather than branching off more threads.
 const int CUTOFF_SIZE = 1024;
 
-// A static SizedArray to work with.
-SizedArray array(32768);
-
-
+// The array to work with.
+SizedArray* array;
 
 // Moves everything smaller than the pivot to the left of the pivot and
 // returns the new location of the pivot.
@@ -21,16 +19,16 @@ int pivotWork(Range* range) {
 	int p = range->min;
 	int temp;
 	for (int i = range->min + 1; i < range->max; i++) {
-		if (array.array[i] < array.array[range->min]) {
+		if (array->get(i) < array->get(range->min)) {
 			p++;
-			temp = array.array[i];
-			array.array[i] = array.array[p];
-			array.array[p] = temp;
+			temp = array->get(i);
+			array->set(i, array->get(p));
+			array->set(p, temp);
 		}
 	}
-	temp = array.array[p];
-	array.array[p] = array.array[range->min];
-	array.array[range->min] = temp;
+	temp = array->get(p);
+	array->set(p, array->get(range->min));
+	array->set(range->min, temp);
 	return p;
 }
 
@@ -68,7 +66,7 @@ void* pQuicksort(void* args) {
 	
 		// Branch a thread to handle the left half of the array.
 		// pQuicksort the right half.
-		Range* split = range->split(pivotLoc);
+		Range* split = range->splitAround(pivotLoc);
 		pthread_t left;
 		pthread_create(&left, NULL, pQuicksort, (void*)split);
 		pQuicksort((void*)&split[1]);
@@ -80,21 +78,29 @@ void* pQuicksort(void* args) {
 }
 
 int main() {
-	// Make a range for the whole array.
-	Range range;
-	range.min = 0;
-	range.max = array.size;
+	// Read in the file.
+	ifstream randFile;
+	randFile.open("randomized.txt");
+	if (!randFile.is_open()) {
+		return 1;
+	}
+	array = new SizedArray(randFile);
+	randFile.close();
 	
-	// Randomize the array.
-	// This is done on the main thread because we'll just have to join before anything else anyway.
-	pRandom((void*)&range);
+	// Make a range for the whole array.
+	Range range = array->getFullRange();
 	
 	// Sort the array.
 	pQuicksort((void*)&range);
 	
 	// Print the results.
-	array.print(&range, cout);
-	cout << endl;
+	ofstream sortedFile;
+	sortedFile.open("quicksorted.txt");
+	array->print(sortedFile);
+	sortedFile.close();
+	
+	// Clean up.
+	delete array;
 }
 
 

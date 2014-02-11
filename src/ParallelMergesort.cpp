@@ -2,37 +2,25 @@
 #include <cstdlib>
 #include <iostream>
 #include <fstream>
-#include "Range.h"
+#include "SizedArray.h"
 
 using namespace std;
 
 const int CUTOFF = 64;
-const int DATA_SIZE = 32768;
 
-int data[DATA_SIZE];
-int mTemp[DATA_SIZE];
-
-void printData(ostream& out) {
-	int numRows = DATA_SIZE / CUTOFF;
-	for (int r = 0; r < numRows; r++) {
-		int rOff = r * CUTOFF;
-		for (int c = 0; c < CUTOFF; c++) {
-			out << data[rOff + c] << ", ";
-		}
-		out << endl;
-	}
-}
+SizedArray* array;
+int* mTemp;
 
 void merge(int lo, int mid, int hi) {
 	int a = lo, b = mid;
 	for (int k = lo; k < hi; k++) {
-		if (a < mid && (b >= hi || data[a] < data[b]))
-			mTemp[k] = data[a++];
+		if (a < mid && (b >= hi || array->get(a) < array->get(b)))
+			mTemp[k] = array->get(a++);
 		else
-			mTemp[k] = data[b++];
+			mTemp[k] = array->get(b++);
 	}
 	for (int k = lo; k < hi; k++) {
-		data[k] = mTemp[k];
+		array->set(k, mTemp[k]);
 	}
 }
 
@@ -57,39 +45,14 @@ void* sortRange(void* ptr) {
 	}
 	// Otherwise, fork a thread that sorts half the problem and then merge.
 	else {
-		Range* halves = splitRange(range);
+		Range* halves = range->makeHalves();
 		
 		pthread_t leftThread;
 		pthread_create(&leftThread, NULL, sortRange, &halves[0]);
 		sortRange(&halves[1]);
 		pthread_join(leftThread, NULL);
 		
-		merge(halves[0].lo, halves[1].lo, halves[1].hi);
-		
-		delete[] halves;
-	}
-}
-
-// Randomize a range with thread powered divide and conquer.
-void* randomizeRange(void* ptr) {
-	Range* range = (Range*)ptr;
-	int lo = range->min;
-	int hi = range->max;
-	
-	// If hi - lo <= CUTOFF, randomize that part of the array.
-	if (hi - lo <= CUTOFF) {
-		for (int i = lo; i < hi; ++i) {
-			data[i] = rand() % 10000;
-		}
-	}
-	// Otherwise, fork two threads that each randomize half the problem.
-	else {
-		Range* halves = splitRange(range);
-		
-		pthread_t leftThread;
-		pthread_create(&leftThread, NULL, randomizeRange, &halves[0]);
-		randomizeRange(&halves[1]);
-		pthread_join(leftThread, NULL);
+		merge(halves[0].min, halves[1].min, halves[1].max);
 		
 		delete[] halves;
 	}
@@ -97,39 +60,30 @@ void* randomizeRange(void* ptr) {
 
 // Randomize the data and then sort it.
 int main() {
-	Range fullRange;
-	fullRange.min = 0;
-	fullRange.max = DATA_SIZE;
-
-	// Randomize the data.
-	pthread_t randThread;
-	int randRet = pthread_create(&randThread, NULL, randomizeRange, &fullRange);
-	pthread_join(randThread, NULL);
-	cout << "Randomization returned " << randRet << endl;
-	if (randRet != 0)
-		return 1;
-	
-	// Output the randomized data.
-	ofstream randFile;
+	// Read in the file.
+	ifstream randFile;
 	randFile.open("randomized.txt");
-	printData(randFile);
+	if (!randFile.is_open()) {
+		return 1;
+	}
+	array = new SizedArray(randFile);
 	randFile.close();
 	
+	// Make the temp array.
+	mTemp = new int[array->getSize()];
+	
 	// Sort the data.
-	pthread_t sortThread;
-	int sortRet = pthread_create(&sortThread, NULL, sortRange, &fullRange);
-	pthread_join(sortThread, NULL);
-	cout << "Sort returned " << sortRet << endl;
-	if (sortRet != 0)
-		return 2;
+	Range fullRange = array->getFullRange();
+	sortRange(&fullRange);
 	
 	// Output the sorted data.
 	ofstream sortedFile;
-	sortedFile.open("sorted.txt");
-	printData(sortedFile);
+	sortedFile.open("mergesorted.txt");
+	array->print(sortedFile);
 	sortedFile.close();
 	
 	// Clean up and exit.
+	delete mTemp;
 	return 0;
 }
 
